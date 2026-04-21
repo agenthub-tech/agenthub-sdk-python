@@ -630,6 +630,14 @@ class WebAASDK:
 
             self._clear_heartbeat()
 
+            # Check if skill result contains files to upload
+            files_to_upload = None
+            if isinstance(result, dict) and "__files__" in result:
+                files_to_upload = result.pop("__files__")
+                if isinstance(files_to_upload, str):
+                    files_to_upload = [files_to_upload]
+                self._log("skill-exec files | skill=%s files=%s", skill_name, files_to_upload)
+
             # Refresh token before resume (skill execution may take long, token could expire)
             try:
                 await self._acquire_token()
@@ -642,6 +650,7 @@ class WebAASDK:
                 user_input="",
                 run_id=self._run_id,
                 tool_result=tool_result,
+                files=files_to_upload,
             )
             await self._start_sse_stream(resume_options, emitter, 0, False)
             return True
