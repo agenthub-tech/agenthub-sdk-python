@@ -40,6 +40,7 @@ class UserIdentity:
     user_id: str
     name: Optional[str] = None
     avatar: Optional[str] = None
+    attributes: Optional[Dict[str, Any]] = None  # Multi-dimensional user attributes (role, dept, region, etc.)
     metadata: Optional[Dict[str, Any]] = None
 
 

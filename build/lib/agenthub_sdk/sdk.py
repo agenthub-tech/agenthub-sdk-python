@@ -695,6 +695,7 @@ class WebAASDK:
                 "user_id": user.user_id,
                 "name": user.name,
                 "avatar": user.avatar,
+                "attributes": user.attributes or {},
                 "metadata": user.metadata or {},
             },
             headers={**self._auth_headers(), "Content-Type": "application/json"},
@@ -855,3 +856,212 @@ class WebAASDK:
     @property
     def channel_config(self) -> Optional[ChannelConfig]:
         return self._channel_config
+
+    # ── Dimension Sync ──
+
+    async def sync_dimension(
+        self,
+        dim_key: str,
+        dim_type: str,
+        display_name: str,
+        options: Dict[str, Any],
+        required: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Sync a single attribute dimension to AgentHub.
+        
+        Args:
+            dim_key: Dimension identifier (e.g., "dept", "role", "region")
+            dim_type: Type of dimension ("enum", "hierarchy", "tag")
+            display_name: Display name for the dimension
+            options: Dimension options (values for enum, tree for hierarchy)
+            required: Whether this dimension is required for users
+            
+        Returns:
+            Dict with success status and sync stats
+        """
+        if not self._access_token:
+            raise WebAAError("SDK not initialized")
+        
+        client = self._ensure_client()
+        resp = await client.post(
+            f"{self._api_base}/api/sdk/dimensions/sync",
+            json={
+                "dim_key": dim_key,
+                "data": {
+                    "dim_type": dim_type,
+                    "display_name": display_name,
+                    "options": options,
+                    "required": required,
+                },
+            },
+            headers={**self._auth_headers(), "Content-Type": "application/json"},
+        )
+        
+        if resp.status_code not in (200, 201):
+            detail = self._extract_detail(resp.json(), resp.status_code)
+            raise WebAAError(f"Dimension sync failed: {detail}", resp.status_code)
+        
+        return resp.json()
+
+    async def sync_dimensions(
+        self,
+        dimensions: List[Dict[str, Any]],
+        mode: str = "merge",
+    ) -> List[Dict[str, Any]]:
+        """
+        Batch sync multiple attribute dimensions.
+        
+        Args:
+            dimensions: List of dimension configs, each with:
+                - dim_key: Dimension identifier
+                - dim_type: "enum" | "hierarchy" | "tag"
+                - display_name: Display name
+                - options: Dimension options
+                - required: Optional, default False
+            mode: "merge" (add/update only) or "replace" (delete missing)
+            
+        Returns:
+            List of sync results for each dimension
+        """
+        if not self._access_token:
+            raise WebAAError("SDK not initialized")
+        
+        client = self._ensure_client()
+        
+        # Transform to API format
+        api_dimensions = [
+            {
+                "dim_key": d["dim_key"],
+                "data": {
+                    "dim_type": d["dim_type"],
+                    "display_name": d["display_name"],
+                    "options": d["options"],
+                    "required": d.get("required", False),
+                },
+            }
+            for d in dimensions
+        ]
+        
+        resp = await client.post(
+            f"{self._api_base}/api/sdk/dimensions/batch-sync",
+            json={"dimensions": api_dimensions, "mode": mode},
+            headers={**self._auth_headers(), "Content-Type": "application/json"},
+        )
+        
+        if resp.status_code not in (200, 201):
+            detail = self._extract_detail(resp.json(), resp.status_code)
+            raise WebAAError(f"Batch dimension sync failed: {detail}", resp.status_code)
+        
+        return resp.json()
+
+    async def add_dimension_node(
+        self,
+        dim_key: str,
+        parent_key: Optional[str],
+        node: Dict[str, str],
+    ) -> Dict[str, Any]:
+        """
+        Add a node to a hierarchy dimension.
+        
+        Args:
+            dim_key: Dimension identifier
+            parent_key: Parent node key (None for root level)
+            node: Node data with "key" and "label"
+            
+        Returns:
+            Operation result
+        """
+        return await self._dimension_node_operation(dim_key, {
+            "op": "add",
+            "parent_key": parent_key,
+            "node": node,
+        })
+
+    async def update_dimension_node(
+        self,
+        dim_key: str,
+        key: str,
+        updates: Dict[str, str],
+    ) -> Dict[str, Any]:
+        """
+        Update a node in a hierarchy dimension.
+        
+        Args:
+            dim_key: Dimension identifier
+            key: Node key to update
+            updates: Fields to update (e.g., {"label": "New Name"})
+            
+        Returns:
+            Operation result
+        """
+        return await self._dimension_node_operation(dim_key, {
+            "op": "update",
+            "key": key,
+            "node": updates,
+        })
+
+    async def delete_dimension_node(
+        self,
+        dim_key: str,
+        key: str,
+    ) -> Dict[str, Any]:
+        """
+        Delete a node from a hierarchy dimension.
+        
+        Args:
+            dim_key: Dimension identifier
+            key: Node key to delete
+            
+        Returns:
+            Operation result
+        """
+        return await self._dimension_node_operation(dim_key, {
+            "op": "delete",
+            "key": key,
+        })
+
+    async def move_dimension_node(
+        self,
+        dim_key: str,
+        key: str,
+        new_parent_key: Optional[str],
+    ) -> Dict[str, Any]:
+        """
+        Move a node to a new parent in a hierarchy dimension.
+        
+        Args:
+            dim_key: Dimension identifier
+            key: Node key to move
+            new_parent_key: New parent key (None for root level)
+            
+        Returns:
+            Operation result
+        """
+        return await self._dimension_node_operation(dim_key, {
+            "op": "move",
+            "key": key,
+            "new_parent_key": new_parent_key,
+        })
+
+    async def _dimension_node_operation(
+        self,
+        dim_key: str,
+        operation: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Execute a single node operation."""
+        if not self._access_token:
+            raise WebAAError("SDK not initialized")
+        
+        client = self._ensure_client()
+        resp = await client.post(
+            f"{self._api_base}/api/sdk/dimensions/{dim_key}/nodes",
+            json={"operations": [operation]},
+            headers={**self._auth_headers(), "Content-Type": "application/json"},
+        )
+        
+        if resp.status_code not in (200, 201):
+            detail = self._extract_detail(resp.json(), resp.status_code)
+            raise WebAAError(f"Node operation failed: {detail}", resp.status_code)
+        
+        return resp.json()
