@@ -60,6 +60,13 @@ class InitOptions:
 
 
 @dataclass
+class ReasoningOptions:
+    """Reasoning mode for the main runner only."""
+
+    mode: Literal["default", "on", "off"] = "default"
+
+
+@dataclass
 class RunOptions:
     """Options for WebAASDK.run()."""
 
@@ -68,6 +75,7 @@ class RunOptions:
     thread_id: Optional[str] = None
     run_id: Optional[str] = None
     tool_result: Optional[Dict[str, Any]] = None
+    reasoning: Optional[ReasoningOptions] = None
     files: Optional[List[str]] = None  # file paths for multipart upload
 
 

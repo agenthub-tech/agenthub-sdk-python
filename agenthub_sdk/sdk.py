@@ -391,6 +391,8 @@ class WebAASDK:
                 body["run_id"] = options.run_id
             if options.tool_result is not None:
                 body["tool_result"] = options.tool_result
+            if options.reasoning is not None:
+                body["reasoning"] = {"mode": options.reasoning.mode}
             if self._user_id:
                 body["user_id"] = self._user_id
             if options.thread_id is not None:
@@ -413,6 +415,8 @@ class WebAASDK:
                     data_fields["user_id"] = str(body["user_id"])
                 if "thread_id" in body:
                     data_fields["thread_id"] = str(body["thread_id"])
+                if "reasoning" in body:
+                    data_fields["reasoning"] = json.dumps(body["reasoning"], ensure_ascii=False)
 
                 files_list = [
                     ("files", (os.path.basename(fp), open(fp, "rb"), "application/octet-stream"))
@@ -650,6 +654,7 @@ class WebAASDK:
                 user_input="",
                 run_id=self._run_id,
                 tool_result=tool_result,
+                reasoning=options.reasoning,
                 files=files_to_upload,
             )
             await self._start_sse_stream(resume_options, emitter, 0, False)
