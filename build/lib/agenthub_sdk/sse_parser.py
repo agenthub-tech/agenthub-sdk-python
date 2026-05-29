@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from webaa_sdk.models import AGUIEvent
+from .models import AGUIEvent
 
 
 @dataclass

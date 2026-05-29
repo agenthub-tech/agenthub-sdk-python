@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from webaa_sdk.models import SkillCachePolicy
+from .models import SkillCachePolicy
 
 
 class Freshness(Enum):

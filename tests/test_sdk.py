@@ -9,8 +9,9 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from webaa_sdk import (
+from agenthub_sdk import (
     AGUIEvent,
+    AgentHubSDK,
     EventEmitter,
     InitOptions,
     ReasoningOptions,
@@ -21,7 +22,7 @@ from webaa_sdk import (
     WebAAError,
     WebAASDK,
 )
-from webaa_sdk.skill_cache import Freshness, SkillCache
+from agenthub_sdk.skill_cache import Freshness, SkillCache
 
 
 # ── Helpers ──
@@ -57,6 +58,12 @@ def _make_skill(**overrides: Any) -> SkillDefinition:
     }
     defaults.update(overrides)
     return SkillDefinition(**defaults)
+
+
+def test_agenthub_sdk_alias() -> None:
+    sdk = AgentHubSDK()
+    assert isinstance(sdk, AgentHubSDK)
+    assert isinstance(sdk, WebAASDK)
 
 
 def _token_response() -> httpx.Response:
@@ -106,6 +113,21 @@ class TestInit:
         assert body["skills"][0]["name"] == "test_skill"
         assert body["skills"][0]["execution_mode"] == "sdk"
         assert "execute" not in body["skills"][0]  # execute should NOT be sent
+
+    @pytest.mark.asyncio
+    async def test_init_registers_non_summary_result_fields(self, httpx_mock):
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok"})
+        httpx_mock.add_response(url="http://test/api/config", json={"channel_id": "ch-1"})
+        httpx_mock.add_response(url="http://test/api/sdk/register", json={"registered": True, "channel_id": "ch-123"})
+
+        sdk = WebAASDK()
+        skill = _make_skill(non_summary_result_fields=["object_id", "files[*].path"])
+        await sdk.init(InitOptions(channel_key="key-1", skills=[skill], api_base="http://test"))
+
+        reqs = httpx_mock.get_requests()
+        register_req = [r for r in reqs if "/api/sdk/register" in str(r.url)][0]
+        body = json.loads(register_req.content)
+        assert body["skills"][0]["non_summary_result_fields"] == ["object_id", "files[*].path"]
 
     @pytest.mark.asyncio
     async def test_init_token_failure(self, httpx_mock):

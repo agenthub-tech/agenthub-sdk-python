@@ -31,6 +31,7 @@ class SkillDefinition:
     execution_mode: Literal["sdk", "backend"] = "sdk"
     cache: Optional[SkillCachePolicy] = None
     result_cache_fields: Optional[List[Dict[str, Any]]] = None  # [{"path": "x[*].y", "ttl": 600}]
+    non_summary_result_fields: Optional[List[str]] = None
 
 
 @dataclass

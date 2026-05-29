@@ -12,9 +12,9 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import httpx
 
-from webaa_sdk.event_emitter import EventEmitter
-from webaa_sdk.exceptions import WebAAError
-from webaa_sdk.models import (
+from .event_emitter import EventEmitter
+from .exceptions import WebAAError
+from .models import (
     AGUIEvent,
     ChannelConfig,
     InitOptions,
@@ -22,8 +22,8 @@ from webaa_sdk.models import (
     SkillDefinition,
     UserIdentity,
 )
-from webaa_sdk.skill_cache import SkillCache
-from webaa_sdk.sse_parser import parse_sse_line_iter
+from .skill_cache import SkillCache
+from .sse_parser import parse_sse_line_iter
 
 SDK_VERSION = "0.1.0"
 DEFAULT_PROTOCOL_VERSION = "1.0.0"
@@ -214,6 +214,7 @@ class WebAASDK:
                 "prompt_injection": s.prompt_injection,
                 "execution_mode": s.execution_mode,
                 **({"result_cache_fields": s.result_cache_fields} if s.result_cache_fields else {}),
+                **({"non_summary_result_fields": s.non_summary_result_fields} if s.non_summary_result_fields else {}),
             }
             for s in skills
         ]
@@ -1070,3 +1071,9 @@ class WebAASDK:
             raise WebAAError(f"Node operation failed: {detail}", resp.status_code)
         
         return resp.json()
+
+
+class AgentHubSDK(WebAASDK):
+    """Preferred public SDK name kept compatible with WebAASDK."""
+
+    pass

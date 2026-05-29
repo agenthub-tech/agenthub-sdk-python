@@ -1,5 +1,5 @@
-from webaa_sdk.sdk import WebAASDK
-from webaa_sdk.models import (
+from .sdk import AgentHubSDK, WebAASDK
+from .models import (
     SkillCachePolicy,
     SkillDefinition,
     UserIdentity,
@@ -9,12 +9,13 @@ from webaa_sdk.models import (
     AGUIEvent,
     ChannelConfig,
 )
-from webaa_sdk.event_emitter import EventEmitter
-from webaa_sdk.exceptions import WebAAError
+from .event_emitter import EventEmitter
+from .exceptions import WebAAError
 
 __version__ = "0.1.0"
 
 __all__ = [
+    "AgentHubSDK",
     "WebAASDK",
     "SkillCachePolicy",
     "SkillDefinition",
