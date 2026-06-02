@@ -224,6 +224,22 @@ class TestIdentify:
         await sdk.identify(UserIdentity(user_id="u-1"))
         assert called == [True]
 
+    @pytest.mark.asyncio
+    async def test_identify_refreshes_token_and_retries_on_401(self, httpx_mock):
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok"})
+        httpx_mock.add_response(url="http://test/api/config", json={})
+        httpx_mock.add_response(url="http://test/api/sdk/identify", status_code=401, json={"detail": "Token expired"})
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok-2"})
+        httpx_mock.add_response(url="http://test/api/sdk/identify", json={"ok": True})
+
+        sdk = WebAASDK()
+        await sdk.init(InitOptions(channel_key="key-1", api_base="http://test"))
+        await sdk.identify(UserIdentity(user_id="u-1"))
+
+        assert sdk.access_token == "tok-2"
+        identify_reqs = [r for r in httpx_mock.get_requests() if "/api/sdk/identify" in str(r.url)]
+        assert len(identify_reqs) == 2
+
 
 # ── Thread Management Tests ──
 
@@ -242,6 +258,23 @@ class TestThreads:
         result = await sdk.create_thread("My Thread")
         assert result["id"] == "t-1"
         assert sdk.thread_id == "t-1"
+
+    @pytest.mark.asyncio
+    async def test_create_thread_refreshes_token_and_retries_on_401(self, httpx_mock):
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok"})
+        httpx_mock.add_response(url="http://test/api/config", json={})
+        httpx_mock.add_response(url="http://test/api/sdk/identify", json={"ok": True})
+        httpx_mock.add_response(url="http://test/api/sdk/threads", method="POST", status_code=401, json={"detail": "Token expired"})
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok-2"})
+        httpx_mock.add_response(url="http://test/api/sdk/threads", method="POST", json={"id": "t-1"})
+
+        sdk = WebAASDK()
+        await sdk.init(InitOptions(channel_key="key-1", api_base="http://test"))
+        await sdk.identify(UserIdentity(user_id="u-1"))
+        result = await sdk.create_thread("My Thread")
+
+        assert result["id"] == "t-1"
+        assert sdk.access_token == "tok-2"
 
     @pytest.mark.asyncio
     async def test_create_thread_requires_identify(self, httpx_mock):
@@ -268,6 +301,30 @@ class TestThreads:
         await sdk.identify(UserIdentity(user_id="u-1"))
         threads = await sdk.list_threads()
         assert len(threads) == 2
+
+    @pytest.mark.asyncio
+    async def test_list_threads_refreshes_token_and_retries_on_401(self, httpx_mock):
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok"})
+        httpx_mock.add_response(url="http://test/api/config", json={})
+        httpx_mock.add_response(url="http://test/api/sdk/identify", json={"ok": True})
+        httpx_mock.add_response(
+            url=httpx.URL("http://test/api/sdk/threads", params={"user_id": "u-1", "limit": "20", "offset": "0"}),
+            status_code=401,
+            json={"detail": "Token expired"},
+        )
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok-2"})
+        httpx_mock.add_response(
+            url=httpx.URL("http://test/api/sdk/threads", params={"user_id": "u-1", "limit": "20", "offset": "0"}),
+            json=[{"id": "t-1"}],
+        )
+
+        sdk = WebAASDK()
+        await sdk.init(InitOptions(channel_key="key-1", api_base="http://test"))
+        await sdk.identify(UserIdentity(user_id="u-1"))
+        threads = await sdk.list_threads()
+
+        assert threads == [{"id": "t-1"}]
+        assert sdk.access_token == "tok-2"
 
     @pytest.mark.asyncio
     async def test_list_threads_no_user(self, httpx_mock):

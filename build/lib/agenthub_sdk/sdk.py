@@ -118,6 +118,35 @@ class WebAASDK:
             headers["Authorization"] = f"Bearer {self._access_token}"
         return headers
 
+    async def _request_with_auth_refresh(
+        self,
+        method: str,
+        url: str,
+        *,
+        is_retry_after_refresh: bool = False,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        if not self._access_token:
+            raise WebAAError("SDK not initialized")
+
+        headers = dict(kwargs.pop("headers", {}) or {})
+        headers.update(self._auth_headers())
+
+        client = self._ensure_client()
+        resp = await client.request(method, url, headers=headers, **kwargs)
+
+        if resp.status_code == 401 and not is_retry_after_refresh:
+            await self._acquire_token()
+            return await self._request_with_auth_refresh(
+                method,
+                url,
+                is_retry_after_refresh=True,
+                headers=headers,
+                **kwargs,
+            )
+
+        return resp
+
     @staticmethod
     def _extract_detail(data: Any, status_code: int) -> str:
         if isinstance(data, dict):
@@ -189,10 +218,9 @@ class WebAASDK:
 
     async def _fetch_channel_config(self) -> Optional[ChannelConfig]:
         try:
-            client = self._ensure_client()
-            resp = await client.get(
+            resp = await self._request_with_auth_refresh(
+                "GET",
                 f"{self._api_base}/api/config",
-                headers=self._auth_headers(),
             )
             if resp.status_code != 200:
                 return None
@@ -218,11 +246,11 @@ class WebAASDK:
             }
             for s in skills
         ]
-        client = self._ensure_client()
-        resp = await client.post(
+        resp = await self._request_with_auth_refresh(
+            "POST",
             f"{self._api_base}/api/sdk/register",
             json={"skills": skills_meta, "protocol_version": self._protocol_version},
-            headers={**self._auth_headers(), "Content-Type": "application/json"},
+            headers={"Content-Type": "application/json"},
         )
         if resp.status_code != 200:
             detail = self._extract_detail(resp.json(), resp.status_code)
@@ -694,8 +722,8 @@ class WebAASDK:
         if not self._access_token:
             return
 
-        client = self._ensure_client()
-        resp = await client.post(
+        resp = await self._request_with_auth_refresh(
+            "POST",
             f"{self._api_base}/api/sdk/identify",
             json={
                 "user_id": user.user_id,
@@ -704,7 +732,7 @@ class WebAASDK:
                 "attributes": user.attributes or {},
                 "metadata": user.metadata or {},
             },
-            headers={**self._auth_headers(), "Content-Type": "application/json"},
+            headers={"Content-Type": "application/json"},
         )
         if resp.status_code != 200:
             detail = self._extract_detail(resp.json(), resp.status_code)
@@ -729,11 +757,11 @@ class WebAASDK:
         if not self._access_token:
             raise WebAAError("SDK not initialized")
 
-        client = self._ensure_client()
-        resp = await client.post(
+        resp = await self._request_with_auth_refresh(
+            "POST",
             f"{self._api_base}/api/sdk/threads",
             json={"user_id": self._user_id, "title": title},
-            headers={**self._auth_headers(), "Content-Type": "application/json"},
+            headers={"Content-Type": "application/json"},
         )
         if resp.status_code != 200:
             detail = self._extract_detail(resp.json(), resp.status_code)
@@ -765,10 +793,9 @@ class WebAASDK:
         self._run_id = None
         self._thread_id = thread_id
 
-        client = self._ensure_client()
-        resp = await client.get(
+        resp = await self._request_with_auth_refresh(
+            "GET",
             f"{self._api_base}/api/sdk/threads/{thread_id}",
-            headers=self._auth_headers(),
         )
         if resp.status_code != 200:
             detail = self._extract_detail(resp.json(), resp.status_code)
@@ -780,11 +807,10 @@ class WebAASDK:
         if not self._user_id or not self._access_token:
             return []
 
-        client = self._ensure_client()
-        resp = await client.get(
+        resp = await self._request_with_auth_refresh(
+            "GET",
             f"{self._api_base}/api/sdk/threads",
             params={"user_id": self._user_id, "limit": limit, "offset": offset},
-            headers=self._auth_headers(),
         )
         if resp.status_code != 200:
             return []
