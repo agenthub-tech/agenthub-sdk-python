@@ -47,6 +47,6 @@ asyncio.run(main())
 - Import from `agenthub_sdk`.
 - `channel_key` is required.
 - `run()` requires a running event loop.
-- `web_search_enabled` overrides web search for the current session; it only takes effect when the channel allows web search.
+- Web search is off by default. Set `web_search_enabled=True` explicitly, and ensure the channel allows web search.
 - SDK-side skills must use `execution_mode="sdk"`.
 - `SkillExecuteInstruction` is auto-dispatched and auto-resumed by the SDK.
