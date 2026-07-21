@@ -77,6 +77,7 @@ class RunOptions:
     run_id: Optional[str] = None
     tool_result: Optional[Dict[str, Any]] = None
     reasoning: Optional[ReasoningOptions] = None
+    web_search_enabled: Optional[bool] = None
     files: Optional[List[str]] = None  # file paths for multipart upload
 
 

@@ -386,6 +386,10 @@ class TestRunOptions:
         assert opts.reasoning is not None
         assert opts.reasoning.mode == "on"
 
+    def test_run_options_accept_web_search_override(self):
+        opts = RunOptions(user_input="杭州天气", web_search_enabled=False)
+        assert opts.web_search_enabled is False
+
 
 # ── SkillCache Tests ──
 
@@ -531,7 +535,11 @@ class TestSkillLookupPriority:
             headers={"content-type": "text/event-stream"},
         )
 
-        await sdk._handle_event(event, emitter, RunOptions(user_input="test", reasoning=ReasoningOptions(mode="on")))
+        await sdk._handle_event(
+            event,
+            emitter,
+            RunOptions(user_input="test", reasoning=ReasoningOptions(mode="on"), web_search_enabled=False),
+        )
 
         assert init_called == [True]
         assert local_called == []  # local should NOT be called
@@ -539,6 +547,7 @@ class TestSkillLookupPriority:
         agent_run_req = [r for r in reqs if "/api/agent/run" in str(r.url)][0]
         body = json.loads(agent_run_req.content)
         assert body["reasoning"] == {"mode": "on"}
+        assert body["web_search_enabled"] is False
 
     @pytest.mark.asyncio
     @pytest.mark.httpx_mock(assert_all_requests_were_expected=False)

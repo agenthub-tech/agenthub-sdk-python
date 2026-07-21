@@ -27,7 +27,10 @@ async def main():
     )
 
     done = asyncio.get_running_loop().create_future()
-    emitter = sdk.run(RunOptions(user_input="帮我完成任务"))
+    emitter = sdk.run(RunOptions(
+        user_input="杭州明天天气如何？",
+        web_search_enabled=True,
+    ))
 
     emitter.on("TextMessageDelta", lambda event: print(event.payload.get("delta", ""), end=""))
     emitter.on("done", lambda _event: None if done.done() else done.set_result(None))
@@ -44,5 +47,6 @@ asyncio.run(main())
 - Import from `agenthub_sdk`.
 - `channel_key` is required.
 - `run()` requires a running event loop.
+- `web_search_enabled` overrides web search for the current session; it only takes effect when the channel allows web search.
 - SDK-side skills must use `execution_mode="sdk"`.
 - `SkillExecuteInstruction` is auto-dispatched and auto-resumed by the SDK.

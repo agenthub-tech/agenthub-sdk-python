@@ -422,6 +422,8 @@ class WebAASDK:
                 body["tool_result"] = options.tool_result
             if options.reasoning is not None:
                 body["reasoning"] = {"mode": options.reasoning.mode}
+            if options.web_search_enabled is not None:
+                body["web_search_enabled"] = options.web_search_enabled
             if self._user_id:
                 body["user_id"] = self._user_id
             if options.thread_id is not None:
@@ -446,6 +448,8 @@ class WebAASDK:
                     data_fields["thread_id"] = str(body["thread_id"])
                 if "reasoning" in body:
                     data_fields["reasoning"] = json.dumps(body["reasoning"], ensure_ascii=False)
+                if "web_search_enabled" in body:
+                    data_fields["web_search_enabled"] = str(body["web_search_enabled"]).lower()
 
                 files_list = [
                     ("files", (os.path.basename(fp), open(fp, "rb"), "application/octet-stream"))
@@ -684,6 +688,7 @@ class WebAASDK:
                 run_id=self._run_id,
                 tool_result=tool_result,
                 reasoning=options.reasoning,
+                web_search_enabled=options.web_search_enabled,
                 files=files_to_upload,
             )
             await self._start_sse_stream(resume_options, emitter, 0, False)
