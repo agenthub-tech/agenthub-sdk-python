@@ -8,7 +8,6 @@ from .models import (
     RunOptions,
     AGUIEvent,
     ChannelConfig,
-    DelegationTask,
 )
 from .event_emitter import EventEmitter
 from .exceptions import WebAAError
@@ -26,7 +25,6 @@ __all__ = [
     "RunOptions",
     "AGUIEvent",
     "ChannelConfig",
-    "DelegationTask",
     "EventEmitter",
     "WebAAError",
 ]

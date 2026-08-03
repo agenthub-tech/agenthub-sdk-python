@@ -32,26 +32,6 @@ class SkillDefinition:
     cache: Optional[SkillCachePolicy] = None
     result_cache_fields: Optional[List[Dict[str, Any]]] = None  # [{"path": "x[*].y", "ttl": 600}]
     non_summary_result_fields: Optional[List[str]] = None
-    exposed_for_delegation: bool = False
-    delegation_risk_level: Literal["low", "medium", "high"] = "medium"
-    available_sources: Optional[List[str]] = None
-
-
-@dataclass
-class DelegationTask:
-    """A delegated SDK skill invocation claimed by this channel."""
-
-    delegation_run_id: str
-    target_skill: str
-    params: Dict[str, Any] = field(default_factory=dict)
-    source_run_id: Optional[str] = None
-    source_channel_id: Optional[str] = None
-    target_channel_id: Optional[str] = None
-    actor: Dict[str, Any] = field(default_factory=dict)
-    identity: Dict[str, Any] = field(default_factory=dict)
-    client_context: Dict[str, Any] = field(default_factory=dict)
-
-
 @dataclass
 class UserIdentity:
     """End-user identity for the identify() call."""
