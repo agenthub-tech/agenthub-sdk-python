@@ -50,3 +50,19 @@ asyncio.run(main())
 - Web search is off by default. Set `web_search_enabled=True` explicitly, and ensure the channel allows web search.
 - SDK-side skills must use `execution_mode="sdk"`.
 - `SkillExecuteInstruction` is auto-dispatched and auto-resumed by the SDK.
+
+## Delegated SDK Skills
+
+Exported SDK skills can claim work delegated from another AgentHub channel and complete it after local execution:
+
+```python
+tasks = await sdk.claim_delegations(limit=1)
+for task in tasks:
+    try:
+        result = await execute_locally(task.target_skill, task.params)
+        await sdk.complete_delegation(task.delegation_run_id, result=result)
+    except Exception as exc:
+        await sdk.complete_delegation(task.delegation_run_id, error=str(exc))
+```
+
+Register the skill with `exposed_for_delegation=True` and an appropriate `delegation_risk_level`.

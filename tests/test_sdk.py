@@ -130,6 +130,21 @@ class TestInit:
         assert body["skills"][0]["non_summary_result_fields"] == ["object_id", "files[*].path"]
 
     @pytest.mark.asyncio
+    async def test_init_registers_delegation_metadata(self, httpx_mock):
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok"})
+        httpx_mock.add_response(url="http://test/api/config", json={"channel_id": "ch-1"})
+        httpx_mock.add_response(url="http://test/api/sdk/register", json={"registered": True, "channel_id": "ch-123"})
+
+        sdk = WebAASDK()
+        skill = _make_skill(exposed_for_delegation=True, delegation_risk_level="high")
+        await sdk.init(InitOptions(channel_key="key-1", skills=[skill], api_base="http://test"))
+
+        register_req = [r for r in httpx_mock.get_requests() if "/api/sdk/register" in str(r.url)][0]
+        body = json.loads(register_req.content)
+        assert body["skills"][0]["exposed_for_delegation"] is True
+        assert body["skills"][0]["delegation_risk_level"] == "high"
+
+    @pytest.mark.asyncio
     async def test_init_token_failure(self, httpx_mock):
         httpx_mock.add_response(url="http://test/api/auth/token", status_code=401, json={"detail": "Invalid key"})
 
@@ -187,6 +202,57 @@ class TestInit:
         await sdk.init(InitOptions(channel_key="key-1", api_base="http://test"))
         assert sdk.version == "0.1.0"
         assert sdk.api_base == "http://test"
+
+
+class TestDelegations:
+    @pytest.mark.asyncio
+    async def test_claim_delegations(self, httpx_mock):
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok"})
+        httpx_mock.add_response(url="http://test/api/config", json={})
+        httpx_mock.add_response(
+            url="http://test/api/sdk/delegations/pending?limit=1",
+            json={
+                "tasks": [
+                    {
+                        "delegation_run_id": "dr-1",
+                        "source_run_id": "run-1",
+                        "source_channel_id": "source-1",
+                        "target_channel_id": "target-1",
+                        "target_skill": "codex_local",
+                        "params": {"instruction": "fix it"},
+                        "actor": {"tenant_user_id": "u-1"},
+                        "identity": {"identity_state": "mapped"},
+                        "client_context": {},
+                    }
+                ]
+            },
+        )
+        sdk = WebAASDK()
+        await sdk.init(InitOptions(channel_key="key-1", api_base="http://test"))
+
+        tasks = await sdk.claim_delegations(limit=1)
+
+        assert len(tasks) == 1
+        assert tasks[0].delegation_run_id == "dr-1"
+        assert tasks[0].target_skill == "codex_local"
+        assert tasks[0].params == {"instruction": "fix it"}
+
+    @pytest.mark.asyncio
+    async def test_complete_delegation(self, httpx_mock):
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok"})
+        httpx_mock.add_response(url="http://test/api/config", json={})
+        httpx_mock.add_response(
+            url="http://test/api/sdk/delegations/dr-1/complete",
+            json={"delegation_run_id": "dr-1", "status": "completed", "source_run_resumed": True},
+        )
+        sdk = WebAASDK()
+        await sdk.init(InitOptions(channel_key="key-1", api_base="http://test"))
+
+        resumed = await sdk.complete_delegation("dr-1", result={"success": True})
+
+        assert resumed is True
+        request = [r for r in httpx_mock.get_requests() if "/delegations/dr-1/complete" in str(r.url)][0]
+        assert json.loads(request.content) == {"result": {"success": True}, "error": None}
 
 
 # ── Identify Tests ──

@@ -17,6 +17,7 @@ from .exceptions import WebAAError
 from .models import (
     AGUIEvent,
     ChannelConfig,
+    DelegationTask,
     InitOptions,
     RunOptions,
     SkillDefinition,
@@ -204,6 +205,50 @@ class WebAASDK:
 
         self._log("init complete")
 
+    async def claim_delegations(self, limit: int = 20) -> List[DelegationTask]:
+        """Claim pending delegated SDK skill calls for this channel."""
+        resp = await self._request_with_auth_refresh(
+            "GET",
+            f"{self._api_base}/api/sdk/delegations/pending",
+            params={"limit": max(1, min(limit, 100))},
+        )
+        if resp.status_code != 200:
+            detail = self._extract_detail(resp.json(), resp.status_code)
+            raise WebAAError(f"Claim delegations failed ({resp.status_code}): {detail}", resp.status_code)
+        tasks = resp.json().get("tasks", [])
+        return [
+            DelegationTask(
+                delegation_run_id=str(item.get("delegation_run_id") or ""),
+                target_skill=str(item.get("target_skill") or ""),
+                params=item.get("params") if isinstance(item.get("params"), dict) else {},
+                source_run_id=item.get("source_run_id"),
+                source_channel_id=item.get("source_channel_id"),
+                target_channel_id=item.get("target_channel_id"),
+                actor=item.get("actor") if isinstance(item.get("actor"), dict) else {},
+                identity=item.get("identity") if isinstance(item.get("identity"), dict) else {},
+                client_context=item.get("client_context") if isinstance(item.get("client_context"), dict) else {},
+            )
+            for item in tasks
+        ]
+
+    async def complete_delegation(
+        self,
+        delegation_run_id: str,
+        *,
+        result: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+    ) -> bool:
+        """Complete a delegated SDK skill call and resume its source run."""
+        resp = await self._request_with_auth_refresh(
+            "POST",
+            f"{self._api_base}/api/sdk/delegations/{delegation_run_id}/complete",
+            json={"result": result or {}, "error": error},
+        )
+        if resp.status_code != 200:
+            detail = self._extract_detail(resp.json(), resp.status_code)
+            raise WebAAError(f"Complete delegation failed ({resp.status_code}): {detail}", resp.status_code)
+        return bool(resp.json().get("source_run_resumed", False))
+
     async def _acquire_token(self) -> None:
         client = self._ensure_client()
         resp = await client.post(
@@ -243,6 +288,9 @@ class WebAASDK:
                 "execution_mode": s.execution_mode,
                 **({"result_cache_fields": s.result_cache_fields} if s.result_cache_fields else {}),
                 **({"non_summary_result_fields": s.non_summary_result_fields} if s.non_summary_result_fields else {}),
+                "exposed_for_delegation": s.exposed_for_delegation,
+                "delegation_risk_level": s.delegation_risk_level,
+                **({"available_sources": s.available_sources} if s.available_sources else {}),
             }
             for s in skills
         ]
