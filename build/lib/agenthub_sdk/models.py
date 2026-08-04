@@ -56,6 +56,12 @@ class InitOptions:
     retry_delay: float = 1.0  # seconds
     heartbeat_timeout: float = 45.0  # seconds
     debug: bool = False
+    runtime_mode: Literal["agent", "skill_provider"] = "agent"
+    instance_id: Optional[str] = None
+    provider_id: Optional[str] = None
+    capacity: int = 1
+    runtime: str = "python"
+    metadata: Optional[Dict[str, Any]] = None
 
 
 @dataclass
