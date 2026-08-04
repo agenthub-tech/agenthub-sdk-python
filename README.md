@@ -42,6 +42,23 @@ async def main():
 asyncio.run(main())
 ```
 
+## Skill Provider mode
+
+Use `runtime_mode="skill_provider"` for a long-running process that only registers and executes Skills for runs started by other channel entries:
+
+```python
+await sdk.init(InitOptions(
+    channel_key="your-channel-key",
+    api_base="https://your-agenthub-server",
+    runtime_mode="skill_provider",
+    provider_id="stable-device-id",
+    skills=[my_skill],
+))
+await sdk.serve_forever()
+```
+
+The default `runtime_mode="agent"` preserves the existing `run()` behavior.
+
 ## Notes
 
 - Import from `agenthub_sdk`.

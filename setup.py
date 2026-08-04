@@ -7,5 +7,6 @@ setup(
     python_requires=">=3.9",
     install_requires=[
         "httpx>=0.27,<1.0",
+        "websockets>=12,<16",
     ],
 )

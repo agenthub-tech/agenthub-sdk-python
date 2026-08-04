@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+from urllib.parse import quote
 import time
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional
@@ -91,6 +92,10 @@ class WebAASDK:
 
         # Heartbeat
         self._heartbeat_task: Optional[asyncio.Task] = None
+        self._provider_task: Optional[asyncio.Task] = None
+        self._runtime_mode: str = "agent"
+        self._provider_options: Optional[InitOptions] = None
+        self._provider_ready = asyncio.Event()
 
         # HTTP client (created lazily in init)
         self._client: Optional[httpx.AsyncClient] = None
@@ -171,6 +176,8 @@ class WebAASDK:
         self._retry_delay = options.retry_delay
         self._heartbeat_timeout = options.heartbeat_timeout
         self._debug = options.debug
+        self._runtime_mode = options.runtime_mode
+        self._provider_options = options
         self._disconnected = False
 
         self._log(
@@ -191,7 +198,7 @@ class WebAASDK:
 
         # 3. Register skills with backend
         if options.skills:
-            await self._register_skills(options.skills)
+            await self._register_skills(options.skills, options)
             self._log("skills registered | count=%d channelId=%s", len(options.skills), self._channel_id)
 
         # 4. Identify user if provided
@@ -201,6 +208,25 @@ class WebAASDK:
 
         # 5. Register default handlers for platform builtin skills
         self._register_default_skill_handlers()
+
+        if options.runtime_mode == "skill_provider":
+            if not options.skills:
+                raise WebAAError("skill_provider mode requires at least one skill")
+            if not options.provider_id:
+                raise WebAAError("skill_provider mode requires provider_id")
+            self._provider_task = asyncio.create_task(self._provider_loop())
+            ready_task = asyncio.create_task(self._provider_ready.wait())
+            done, _ = await asyncio.wait(
+                {self._provider_task, ready_task},
+                timeout=max(10.0, self._heartbeat_timeout),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if self._provider_task in done:
+                ready_task.cancel()
+                await self._provider_task
+            if ready_task not in done:
+                ready_task.cancel()
+                raise WebAAError("Skill Provider connection timed out")
 
         self._log("init complete")
 
@@ -234,7 +260,7 @@ class WebAASDK:
         except Exception:
             return None
 
-    async def _register_skills(self, skills: List[SkillDefinition]) -> None:
+    async def _register_skills(self, skills: List[SkillDefinition], options: InitOptions) -> None:
         skills_meta = [
             {
                 "name": s.name,
@@ -249,7 +275,17 @@ class WebAASDK:
         resp = await self._request_with_auth_refresh(
             "POST",
             f"{self._api_base}/api/sdk/register",
-            json={"skills": skills_meta, "protocol_version": self._protocol_version},
+            json={
+                "skills": skills_meta,
+                "protocol_version": self._protocol_version,
+                "runtime_mode": options.runtime_mode,
+                "instance_id": options.instance_id,
+                "provider_id": options.provider_id,
+                "capacity": max(1, options.capacity),
+                "runtime": options.runtime,
+                "sdk_version": SDK_VERSION,
+                "metadata": options.metadata or {},
+            },
             headers={"Content-Type": "application/json"},
         )
         if resp.status_code != 200:
@@ -257,6 +293,70 @@ class WebAASDK:
             raise WebAAError(f"Register failed ({resp.status_code}): {detail}", resp.status_code)
         data = resp.json()
         self._channel_id = data.get("channel_id")
+
+    async def _provider_loop(self) -> None:
+        try:
+            import websockets
+        except ImportError as exc:
+            raise WebAAError("skill_provider mode requires the 'websockets' package") from exc
+        options = self._provider_options
+        if options is None:
+            return
+        while not self._disconnected:
+            try:
+                if not self._access_token:
+                    await self._acquire_token()
+                ws_base = self._api_base.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
+                uri = f"{ws_base}/api/sdk/providers/ws?access_token={quote(self._access_token or '', safe='')}"
+                async with websockets.connect(uri, ping_interval=20, ping_timeout=20) as websocket:
+                    await websocket.send(json.dumps({
+                        "type": "provider.register",
+                        "provider_id": options.provider_id,
+                        "skills": list(self._skills.keys()),
+                        "capacity": max(1, options.capacity),
+                        "runtime": options.runtime,
+                        "sdk_version": SDK_VERSION,
+                        "metadata": options.metadata or {},
+                    }))
+                    registered = json.loads(await websocket.recv())
+                    if registered.get("type") != "provider.registered":
+                        raise WebAAError("Skill Provider registration was rejected")
+                    self._provider_ready.set()
+                    async for raw in websocket:
+                        message = json.loads(raw)
+                        if message.get("type") != "skill.execute":
+                            continue
+                        execution_id = str(message.get("execution_id") or "")
+                        skill_name = str(message.get("skill_name") or "")
+                        params = message.get("params") if isinstance(message.get("params"), dict) else {}
+                        skill = self._skills.get(skill_name)
+                        execute = skill.execute if skill else self._local_skills.get(skill_name)
+                        try:
+                            if execute is None:
+                                raise RuntimeError(f"Skill '{skill_name}' not registered locally")
+                            result = await execute(params)
+                            await websocket.send(json.dumps({
+                                "type": "skill.result",
+                                "execution_id": execution_id,
+                                "result": result,
+                            }, ensure_ascii=False))
+                        except Exception as exc:
+                            await websocket.send(json.dumps({
+                                "type": "skill.error",
+                                "execution_id": execution_id,
+                                "error": {"message": str(exc)},
+                            }, ensure_ascii=False))
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._log("provider reconnect | error=%s", str(exc))
+                if not self._disconnected:
+                    await asyncio.sleep(self._retry_delay)
+
+    async def serve_forever(self) -> None:
+        if self._runtime_mode != "skill_provider" or self._provider_task is None:
+            raise WebAAError("serve_forever() requires skill_provider mode")
+        await self._provider_task
 
     # ── Default Skill Handlers ──
 
@@ -351,6 +451,8 @@ class WebAASDK:
         Send a user prompt to the agent and return an EventEmitter that streams AG-UI events.
         Starts the SSE stream in a background asyncio task.
         """
+        if self._runtime_mode == "skill_provider":
+            raise WebAAError("run() is unavailable in skill_provider mode")
         emitter = EventEmitter()
         self._disconnected = False
 
@@ -375,6 +477,8 @@ class WebAASDK:
 
     async def run_async(self, options: RunOptions) -> EventEmitter:
         """Async version of run() — awaits the full SSE stream."""
+        if self._runtime_mode == "skill_provider":
+            raise WebAAError("run_async() is unavailable in skill_provider mode")
         emitter = EventEmitter()
         self._disconnected = False
 
@@ -834,6 +938,10 @@ class WebAASDK:
         self._log("disconnect")
         self._disconnected = True
         self._clear_heartbeat()
+        if self._provider_task is not None:
+            self._provider_task.cancel()
+            self._provider_task = None
+        self._provider_ready.clear()
 
     def reset(self) -> None:
         """Reset user state (logout). Disconnects, clears userId/threadId/runId."""
