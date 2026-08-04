@@ -312,6 +312,7 @@ class WebAASDK:
                     await websocket.send(json.dumps({
                         "type": "provider.register",
                         "provider_id": options.provider_id,
+                        "instance_id": options.instance_id or options.provider_id,
                         "skills": list(self._skills.keys()),
                         "capacity": max(1, options.capacity),
                         "runtime": options.runtime,
