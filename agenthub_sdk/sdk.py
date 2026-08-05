@@ -21,6 +21,7 @@ from .models import (
     InitOptions,
     RunOptions,
     SkillDefinition,
+    SkillExecutionContext,
     UserIdentity,
 )
 from .skill_cache import SkillCache
@@ -328,6 +329,8 @@ class WebAASDK:
                         if message.get("type") != "skill.execute":
                             continue
                         execution_id = str(message.get("execution_id") or "")
+                        run_id = str(message.get("run_id") or "")
+                        tool_call_id = str(message.get("tool_call_id") or "")
                         skill_name = str(message.get("skill_name") or "")
                         params = message.get("params") if isinstance(message.get("params"), dict) else {}
                         skill = self._skills.get(skill_name)
@@ -335,7 +338,28 @@ class WebAASDK:
                         try:
                             if execute is None:
                                 raise RuntimeError(f"Skill '{skill_name}' not registered locally")
-                            result = await execute(params)
+
+                            async def report_progress(progress: Dict[str, Any]) -> None:
+                                await websocket.send(json.dumps({
+                                    "type": "skill.progress",
+                                    "execution_id": execution_id,
+                                    "run_id": run_id,
+                                    "tool_call_id": tool_call_id,
+                                    "progress": progress,
+                                }, ensure_ascii=False))
+
+                            if skill is not None and skill.execute_with_context is not None:
+                                result = await skill.execute_with_context(
+                                    params,
+                                    SkillExecutionContext(
+                                        execution_id=execution_id,
+                                        run_id=run_id,
+                                        tool_call_id=tool_call_id,
+                                        report_progress=report_progress,
+                                    ),
+                                )
+                            else:
+                                result = await execute(params)
                             await websocket.send(json.dumps({
                                 "type": "skill.result",
                                 "execution_id": execution_id,

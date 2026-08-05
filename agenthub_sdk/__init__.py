@@ -2,6 +2,7 @@ from .sdk import AgentHubSDK, WebAASDK
 from .models import (
     SkillCachePolicy,
     SkillDefinition,
+    SkillExecutionContext,
     UserIdentity,
     InitOptions,
     ReasoningOptions,
@@ -19,6 +20,7 @@ __all__ = [
     "WebAASDK",
     "SkillCachePolicy",
     "SkillDefinition",
+    "SkillExecutionContext",
     "UserIdentity",
     "InitOptions",
     "ReasoningOptions",
