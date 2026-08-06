@@ -21,12 +21,29 @@ SkillExecutor = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
 
 
 @dataclass
+class SkillExecutionContext:
+    """Optional Provider execution context for streaming progress updates."""
+
+    execution_id: str
+    run_id: str
+    tool_call_id: str
+    report_progress: Callable[[Dict[str, Any]], Awaitable[None]]
+
+
+SkillContextExecutor = Callable[
+    [Dict[str, Any], SkillExecutionContext],
+    Awaitable[Dict[str, Any]],
+]
+
+
+@dataclass
 class SkillDefinition:
     """A skill definition to register with the backend."""
 
     name: str
     schema: Dict[str, Any]
     execute: SkillExecutor
+    execute_with_context: Optional[SkillContextExecutor] = None
     prompt_injection: Optional[str] = None
     execution_mode: Literal["sdk", "backend"] = "sdk"
     cache: Optional[SkillCachePolicy] = None
