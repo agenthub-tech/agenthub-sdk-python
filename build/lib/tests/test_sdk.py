@@ -582,6 +582,79 @@ class TestSkillLookupPriority:
         await sdk._handle_event(event, emitter, RunOptions(user_input="test"))
         assert local_called == [True]
 
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(assert_all_requests_were_expected=False)
+    async def test_skill_exception_resumes_with_current_tool_error(self, httpx_mock):
+        async def failing_execute(params: Dict[str, Any]) -> Dict[str, Any]:
+            raise RuntimeError("invalid suggestions")
+
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok"})
+        httpx_mock.add_response(url="http://test/api/config", json={})
+        httpx_mock.add_response(url="http://test/api/sdk/register", json={"channel_id": "ch-1"})
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok-2"})
+        httpx_mock.add_response(
+            url="http://test/api/agent/run",
+            status_code=200,
+            content=_sse_event("RunFinished", {"run_id": "r-1"}).encode(),
+            headers={"content-type": "text/event-stream"},
+        )
+
+        sdk = WebAASDK()
+        await sdk.init(InitOptions(
+            channel_key="key-1",
+            skills=[_make_skill(name="submit", execute=failing_execute)],
+            api_base="http://test",
+        ))
+        sdk._run_id = "r-1"
+        emitter = EventEmitter()
+        tool_ends: List[AGUIEvent] = []
+        emitter.on("ToolCallEnd", tool_ends.append)
+
+        await sdk._handle_event(
+            AGUIEvent(
+                type="SkillExecuteInstruction",
+                payload={"skill_name": "submit", "params": {}, "tool_call_id": "tc-current"},
+            ),
+            emitter,
+            RunOptions(user_input="test"),
+        )
+
+        run_request = next(r for r in httpx_mock.get_requests() if "/api/agent/run" in str(r.url))
+        body = json.loads(run_request.content)
+        assert body["tool_result"] == {
+            "tool_call_id": "tc-current",
+            "result": {"error": "invalid suggestions"},
+        }
+        assert tool_ends[0].payload["result"] == {"error": "invalid suggestions"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.httpx_mock(assert_all_requests_were_expected=False)
+    async def test_resume_request_is_not_replayed_after_transport_failure(self, httpx_mock):
+        httpx_mock.add_response(url="http://test/api/auth/token", json={"access_token": "tok"})
+        httpx_mock.add_response(url="http://test/api/config", json={})
+        httpx_mock.add_response(url="http://test/api/agent/run", status_code=503, json={"detail": "unavailable"})
+
+        sdk = WebAASDK()
+        await sdk.init(InitOptions(channel_key="key-1", api_base="http://test", max_retries=3))
+        emitter = EventEmitter()
+        errors: List[AGUIEvent] = []
+        emitter.on("error", errors.append)
+
+        await sdk._start_sse_stream(
+            RunOptions(
+                user_input="",
+                run_id="r-1",
+                tool_result={"tool_call_id": "tc-1", "result": {"ok": True}},
+            ),
+            emitter,
+            0,
+            False,
+        )
+
+        run_requests = [r for r in httpx_mock.get_requests() if "/api/agent/run" in str(r.url)]
+        assert len(run_requests) == 1
+        assert errors
+
 
 # ── Default Skill Handler Tests ──
 

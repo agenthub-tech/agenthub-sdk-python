@@ -453,10 +453,13 @@ class WebAASDK:
             if self._disconnected:
                 return
             self._log("heartbeat timeout | %.0fs elapsed with no data", self._heartbeat_timeout)
-            if retry_count < self._max_retries:
+            if self._can_retry_stream(options, retry_count):
                 await self._schedule_reconnect(options, emitter, retry_count)
             else:
-                self._emit_error(emitter, WebAAError("Heartbeat timeout: no events received"))
+                message = "Heartbeat timeout: no events received"
+                if options.tool_result is not None:
+                    message = "Heartbeat timeout during run resume; tool_result was not replayed"
+                self._emit_error(emitter, WebAAError(message))
 
         try:
             loop = asyncio.get_running_loop()
@@ -468,6 +471,19 @@ class WebAASDK:
         if self._heartbeat_task is not None:
             self._heartbeat_task.cancel()
             self._heartbeat_task = None
+
+    def _can_retry_stream(self, options: RunOptions, retry_count: int) -> bool:
+        """Return whether replaying the current HTTP request is safe.
+
+        A resume request may already have consumed its tool_result before the
+        SSE connection fails. Replaying it can attach that result to a later
+        pending tool call, so only initial/user runs are retried automatically.
+        """
+        return (
+            options.tool_result is None
+            and retry_count < self._max_retries
+            and not self._disconnected
+        )
 
     # ── Run ──
 
@@ -633,7 +649,7 @@ class WebAASDK:
                         self._emit_error(emitter, error)
                         return
 
-                    if retry_count < self._max_retries and not self._disconnected:
+                    if self._can_retry_stream(options, retry_count):
                         await self._schedule_reconnect(options, emitter, retry_count)
                         return
 
@@ -690,7 +706,7 @@ class WebAASDK:
             if self._disconnected:
                 return
             self._log("sse-exception | %s", str(e))
-            if retry_count < self._max_retries and not self._disconnected:
+            if self._can_retry_stream(options, retry_count):
                 await self._schedule_reconnect(options, emitter, retry_count)
                 return
             self._emit_error(emitter, e)
@@ -699,9 +715,15 @@ class WebAASDK:
         self._clear_heartbeat()
 
         # Abnormal stream end: stream closed without RunFinished/Error — retry
-        if not received_terminal and not self._disconnected and retry_count < self._max_retries:
-            self._log("sse-abnormal-end | stream ended without terminal event, reconnecting")
-            await self._schedule_reconnect(options, emitter, retry_count)
+        if not received_terminal and not self._disconnected:
+            if self._can_retry_stream(options, retry_count):
+                self._log("sse-abnormal-end | stream ended without terminal event, reconnecting")
+                await self._schedule_reconnect(options, emitter, retry_count)
+            elif options.tool_result is not None:
+                self._emit_error(
+                    emitter,
+                    WebAAError("Run resume stream ended before completion; tool_result was not replayed"),
+                )
 
     async def _handle_event(
         self,
@@ -761,6 +783,7 @@ class WebAASDK:
                 execute_func = self._local_skills.get(skill_name)
 
             if execute_func is not None:
+                result: Dict[str, Any]
                 try:
                     self._log("skill-exec | skill=%s", skill_name)
                     result = await execute_func(params)
@@ -772,12 +795,14 @@ class WebAASDK:
                 except Exception as e:
                     msg = str(e)
                     self._log("skill-exec error | skill=%s error=%s", skill_name, msg)
-                    tool_result = {"tool_call_id": tool_call_id, "result": {"error": msg}}
+                    result = {"error": msg}
+                    tool_result = {"tool_call_id": tool_call_id, "result": result}
             else:
                 self._log("skill-exec miss | skill=%s not registered", skill_name)
+                result = {"error": f"Skill '{skill_name}' not registered locally"}
                 tool_result = {
                     "tool_call_id": tool_call_id,
-                    "result": {"error": f"Skill '{skill_name}' not registered locally"},
+                    "result": result,
                 }
 
             # Emit synthetic ToolCallEnd
