@@ -201,12 +201,13 @@ class TestIdentify:
 
         sdk = WebAASDK()
         await sdk.init(InitOptions(channel_key="key-1", api_base="http://test"))
-        await sdk.identify(UserIdentity(user_id="u-1", name="Bob", metadata={"role": "admin"}))
+        await sdk.identify(UserIdentity(user_id="u-1", name="Bob", account="bob", metadata={"role": "admin"}))
 
         reqs = httpx_mock.get_requests()
         identify_req = [r for r in reqs if "/api/sdk/identify" in str(r.url)][0]
         body = json.loads(identify_req.content)
         assert body["user_id"] == "u-1"
+        assert body["account"] == "bob"
         assert body["name"] == "Bob"
         assert body["metadata"] == {"role": "admin"}
 

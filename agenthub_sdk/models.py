@@ -58,6 +58,7 @@ class UserIdentity:
     avatar: Optional[str] = None
     attributes: Optional[Dict[str, Any]] = None  # Multi-dimensional user attributes (role, dept, region, etc.)
     metadata: Optional[Dict[str, Any]] = None
+    account: Optional[str] = None  # AD sAMAccountName; independent of user_id
 
 
 @dataclass

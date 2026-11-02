@@ -886,6 +886,7 @@ class WebAASDK:
             f"{self._api_base}/api/sdk/identify",
             json={
                 "user_id": user.user_id,
+                "account": user.account,
                 "name": user.name,
                 "avatar": user.avatar,
                 "attributes": user.attributes or {},
