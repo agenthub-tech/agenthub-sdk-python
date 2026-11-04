@@ -324,10 +324,10 @@ class WebAASDK:
                     if registered.get("type") != "provider.registered":
                         raise WebAAError("Skill Provider registration was rejected")
                     self._provider_ready.set()
-                    async for raw in websocket:
-                        message = json.loads(raw)
-                        if message.get("type") != "skill.execute":
-                            continue
+                    capacity = asyncio.Semaphore(max(1, options.capacity))
+                    tasks = set()
+
+                    async def execute_message(message):
                         execution_id = str(message.get("execution_id") or "")
                         run_id = str(message.get("run_id") or "")
                         tool_call_id = str(message.get("tool_call_id") or "")
@@ -371,6 +371,30 @@ class WebAASDK:
                                 "execution_id": execution_id,
                                 "error": {"message": str(exc)},
                             }, ensure_ascii=False))
+
+                    async def dispatch(message):
+                        try:
+                            await execute_message(message)
+                        finally:
+                            capacity.release()
+
+                    try:
+                        async for raw in websocket:
+                            message = json.loads(raw)
+                            if message.get("type") != "skill.execute":
+                                continue
+                            await capacity.acquire()
+                            task = asyncio.create_task(dispatch(message))
+                            tasks.add(task)
+                            def finished(task):
+                                tasks.discard(task)
+                                if not task.cancelled():
+                                    task.exception()  # Retrieve send failures on a disconnected socket.
+                            task.add_done_callback(finished)
+                    finally:
+                        for task in tasks:
+                            task.cancel()
+                        await asyncio.gather(*tasks, return_exceptions=True)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:

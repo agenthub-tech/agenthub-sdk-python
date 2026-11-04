@@ -714,3 +714,56 @@ class TestDefaultSkillHandlers:
         handler = sdk._local_skills["dialog_skill"]
         result = await handler({})
         assert result == {"custom": True}
+
+@pytest.mark.asyncio
+async def test_provider_runs_up_to_capacity_and_binds_execution_ids(monkeypatch):
+    import asyncio
+    import websockets
+    from types import SimpleNamespace
+
+    sdk = WebAASDK()
+    sdk._access_token = "test"
+    sdk._api_base = "http://localhost"
+    sdk._provider_options = SimpleNamespace(provider_id="p", instance_id="i", capacity=3, runtime="test", metadata={})
+    active = peak = 0
+    progress = []
+    completed = asyncio.Event()
+
+    async def execute(params, context):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        await context.report_progress({"job": params["job"]})
+        active -= 1
+        return params
+
+    sdk._skills = {"work": SimpleNamespace(execute=_noop_execute, execute_with_context=execute)}
+    class Socket:
+        results = []
+        async def send(self, raw):
+            event = json.loads(raw)
+            if event["type"] == "skill.progress":
+                progress.append(event)
+            elif event["type"] == "skill.result":
+                self.results.append(event)
+                if len(self.results) == 3:
+                    completed.set()
+        async def recv(self):
+            return json.dumps({"type": "provider.registered"})
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return False
+        async def __aiter__(self):
+            for i in range(3):
+                yield json.dumps({"type": "skill.execute", "execution_id": str(i), "skill_name": "work", "params": {"job": i}})
+            await completed.wait()
+            sdk._disconnected = True
+
+    socket = Socket()
+    monkeypatch.setattr(websockets, "connect", lambda *args, **kwargs: socket)
+    await asyncio.wait_for(sdk._provider_loop(), 2)
+    assert peak == 3
+    assert {event["execution_id"]: event["progress"]["job"] for event in progress} == {str(i): i for i in range(3)}
+    assert len(socket.results) == 3
